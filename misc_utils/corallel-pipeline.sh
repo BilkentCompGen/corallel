@@ -620,6 +620,7 @@ if [ "$RUN_HYPERGEN_SIM" = "true" ]; then
 
     rm -f hypergen-sim-fa-out.txt
     mkdir -p hypergen-ref && ln -sf ../ref.fa hypergen-ref/ref.fa
+    # HyperGen at its defaults (1-in-1500 sampling, 4096-d vectors): ~1M hashes per 4096-d vector gave ANI = 100 for everything
 
     for k in ${SIM_KMERS}; do
 
@@ -627,15 +628,13 @@ if [ "$RUN_HYPERGEN_SIM" = "true" ]; then
             -p hypergen-ref \
             -o sim.hypergen.ref.k${k}.sketch \
             -t ${SIM_THREADS} \
-            -k ${k} \
-            -s ${SIM_SCALED} >> hypergen-sim-fa-out.txt 2>&1
+            -k ${k} >> hypergen-sim-fa-out.txt 2>&1
 
         /bin/time -v ${HYPERGEN} sketch \
             -p . \
             -o sim.hypergen.k${k}.sketch \
             -t ${SIM_THREADS} \
-            -k ${k} \
-            -s ${SIM_SCALED} >> hypergen-sim-fa-out.txt 2>&1
+            -k ${k} >> hypergen-sim-fa-out.txt 2>&1
 
         /bin/time -v ${HYPERGEN} dist \
             -r sim.hypergen.ref.k${k}.sketch \

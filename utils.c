@@ -267,6 +267,11 @@ void genSign(void *args) {
     }
     
     if (genome_args->sct == SIM_CALC_VECTOR) {
+        uint64_t total_len = 0;
+        for (uint64_t j = 0; j < len; j++) {
+            total_len += cores[j] & 0xFFFFFFFF;
+        }
+        genome_args->result.total_sequence_len = total_len;
         time(&end);
         genome_args->time_stats.filtering = difftime(end, breakpoint);
         return;
@@ -284,6 +289,12 @@ void genSign(void *args) {
     }
 
     index++;
+
+    uint64_t total_len = 0;
+    for (uint64_t j = 0; j < index; j++) {
+        total_len += cores[j] & 0xFFFFFFFF;
+    }
+    genome_args->result.total_sequence_len = total_len;
 
     if (index) {
         simple_core *new_cores = (simple_core *)malloc(sizeof(simple_core) * index);

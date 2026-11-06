@@ -131,7 +131,7 @@ void calcDistancesFrequencySweep(g_args_t *genome_args, p_args_t *program_args) 
                 log1(ERROR, "Filename buffer for dice overflow.");
                 exit(EXIT_FAILURE);
             }
-            program_args->prefix = temp_prefix;
+            program_args->prefix = filename_buffer;
 
             calcDistances(filtered_args, program_args);
             

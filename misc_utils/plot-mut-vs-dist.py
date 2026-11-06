@@ -65,6 +65,12 @@ def main():
         help="Plot title"
     )
 
+    parser.add_argument(
+        "--ylabel",
+        default="Evolutionary Distance",
+        help="Y-axis label"
+    )
+
     args = parser.parse_args()
 
     mut_names, mut_pairs = read_phy_as_pair_dict(args.mutation_phy)
@@ -113,7 +119,7 @@ def main():
 
     # labels
     ax.set_xlabel("Number of Mutations", fontsize=8)
-    ax.set_ylabel("Evolutionary Distance", fontsize=8)
+    ax.set_ylabel(args.ylabel, fontsize=8)
 
     # grid and spines
     ax.grid(True, linestyle="--", linewidth=0.6, alpha=0.5)

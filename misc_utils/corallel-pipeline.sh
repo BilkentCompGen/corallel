@@ -246,7 +246,7 @@ if [ "$RUN_ANI" = "true" ]; then
 
     if [ -f "${MUTATION_COUNT_PHY}" ]; then
         for l in 4 5 6 7 8 9; do
-            python3 ${PLOT_ANI} ${MUTATION_COUNT_PHY} ../fa-tumor-human/tumor.set.jaccard.lvl${l}.phy --label "Corallel (${l})" -o count-corallel-j-${l}.pdf
+            python3 ${PLOT_ANI} ${MUTATION_COUNT_PHY} ../fa-tumor-human/tumor.set.jaccard.lvl${l}.phy --label "Corallel (${l})" --ylabel "Jaccard Distance" -o count-corallel-j-${l}.pdf
             python3 ${PLOT_ANI} ${MUTATION_COUNT_PHY} ../fa-tumor-human/tumor.set.evol.lvl${l}.phy --label "Corallel (${l})" -o count-corallel-p-${l}.pdf
         done
     fi

@@ -250,7 +250,7 @@ void parse(int argc, char **argv, g_args_t **genome_args, p_args_t *program_args
                 sct = SIM_CALC_SET;
                 break;
             case 6: // --vec
-                sct = SIM_CALC_SET;
+                sct = SIM_CALC_VECTOR;
                 break;
             default:
                 exit(EXIT_FAILURE);

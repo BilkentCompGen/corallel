@@ -496,10 +496,11 @@ if [ "$RUN_CORALLEL_SIM" = "true" ]; then
             -t ${SIM_THREADS} \
             -l "$l" \
             -p sim.fa \
+            --vec \
             -v >> corallel-sim-fa-out.txt 2>&1
 
         awk -v param=lvl$l 'NR == FNR {name[FNR] = $1; next} FNR == 2 {for (i = 3; i <= NF; i++) print name[i - 1] "\tcorallel\t" param "\t" $i}' \
-            shortnames.txt sim.fa.set.evol.lvl${l}.phy >> ${SIM_RESULTS}
+            shortnames.txt sim.fa.vec.evol.lvl${l}.phy >> ${SIM_RESULTS}
     done
 
     cd $WORK_DIR

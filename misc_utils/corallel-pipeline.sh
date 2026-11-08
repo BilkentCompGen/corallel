@@ -1,7 +1,6 @@
-# Usage: bash corallel-pipeline.sh [WORK_DIR] [THIRD_PARTY]   (runs from any directory)
-#   WORK_DIR     inputs are read and results written here (default: current directory)
-#   THIRD_PARTY  tools installed by install-tools.sh (default: <repo>/third_party), activated before the config is read
-#   Settings are loaded from corallel-config.sh next to this script; the parameters above override it.
+# Usage: bash corallel-pipeline.sh   (no arguments; runs from any directory)
+#   Settings come from corallel-config.sh next to this script, including WORK_DIR, where inputs are read and
+#   results written (default: <repo>/genomes; set a full path in the config). Tools come from <repo>/third_party.
 #
 # Required files:
 #   fa-primates
@@ -54,7 +53,7 @@ RUN_DASHING2_SIM_FQ="true"
 RUN_BINDASH_SIM_FQ="true"
 RUN_SKMER_SIM_FQ="true"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
 PROJECT_ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 
 CORALLEL="${PROJECT_ROOT_DIR}/corallel"
@@ -76,10 +75,10 @@ SIM_REF="chm13v2.0.chr20.fa"
 SIM_ERROR_MODEL="pacbio2021"  # badread error/qscore model: pacbio2021 (HiFi-like) or random (uniform sub/ins/del)
 SIM_IDENTITY_SD=0.05          # spread of per-read identity, in percentage points (0 = every read exactly 1 - error)
 SIM_SEEDS="1 2 3"
-SIM_DIVERGENCES="0.0001 0.0005 0.001 0.005 0.01 0.02 0.05"
+SIM_DIVERGENCES="0.0001 0.0005 0.001 0.005 0.01 0.02"
 SIM_SV_DIVERGENCE=0.001
 SIM_INDEL_RATE=0.0001
-SIM_SV_COUNTS="0 100 1000 10000"
+SIM_SV_COUNTS="0 100 250 500 1000"
 SIM_READ_DIVERGENCE=0.001
 SIM_COVERAGES="5 10 15 20 30"
 SIM_ERROR_RATES="0.001 0.005 0.01 0.02 0.05"
@@ -89,30 +88,24 @@ SIM_KMERS="21 31"
 SIM_LEVELS_FA="4 5 6 7"
 SIM_LEVELS_FQ="4 5 6"
 SIM_SKETCH_SIZE=1000000
-SIM_THREADS=${SLURM_CPUS_PER_TASK:-64}  # inside a Slurm job: the CPUs the job asked for
+SIM_THREADS=${SLURM_CPUS_PER_TASK:-64}
 
 PRIMATES_FQ_DIR=.
 
-WORK_DIR=.
-THIRD_PARTY="${2:-${PROJECT_ROOT_DIR}/third_party}"
+WORK_DIR="${PROJECT_ROOT_DIR}/genomes"
+THIRD_PARTY="${PROJECT_ROOT_DIR}/third_party"
 
 MUTATION_COUNT_PHY="mutation.count.phy"
 
-CONFIG_FILE="${SCRIPT_DIR}/corallel-config.sh"
+CONFIG_FILE="$(dirname "${BASH_SOURCE[0]}")/corallel-config.sh"
 
 # activate the tools before reading the config, so the config can use them (e.g. $(which sourmash))
-if [ -f "${THIRD_PARTY}/activate.sh" ]; then
-    source "${THIRD_PARTY}/activate.sh"
-else
-    echo "WARNING: ${THIRD_PARTY}/activate.sh not found, using tools already on PATH" >&2
-fi
+source "${THIRD_PARTY}/activate.sh"
 
 if [[ -n "$CONFIG_FILE" && -f "$CONFIG_FILE" ]]; then
     echo "Loading config from $CONFIG_FILE"
     source "$CONFIG_FILE"
 fi
-
-WORK_DIR="${1:-$WORK_DIR}"
 
 mkdir -p "$WORK_DIR" && cd "$WORK_DIR" || exit 1
 WORK_DIR=$PWD
@@ -413,9 +406,6 @@ fi
 if [ "$RUN_SIM_DATA" = "true" ]; then
 
     [ -f "${SIM_REF}" ] || { echo "ERROR: ${SIM_REF} not found in $PWD (set SIM_REF in ${CONFIG_FILE})" >&2; exit 1; }
-    command -v ${BADREAD} > /dev/null || { echo "ERROR: ${BADREAD} not found (run install-tools.sh, or pass THIRD_PARTY)" >&2; exit 1; }
-    [ -f "${SIM_ERROR_MODEL}" ] || ${BADREAD} simulate --help 2>&1 | grep -q "\"${SIM_ERROR_MODEL}\"" \
-        || { echo "ERROR: $(${BADREAD} --version 2>&1) has no ${SIM_ERROR_MODEL} model (rerun install-tools.sh to upgrade)" >&2; exit 1; }
 
     mkdir -p fa-sim fq-sim
     ln -sf "$(realpath ${SIM_REF})" fa-sim/ref.fa
@@ -499,8 +489,7 @@ if [ "$RUN_CORALLEL_SIM" = "true" ]; then
             --vec \
             -v >> corallel-sim-fa-out.txt 2>&1
 
-        awk -v param=lvl$l 'NR == FNR {name[FNR] = $1; next} FNR == 2 {for (i = 3; i <= NF; i++) print name[i - 1] "\tcorallel\t" param "\t" $i}' \
-            shortnames.txt sim.fa.vec.evol.lvl${l}.phy >> ${SIM_RESULTS}
+        awk -v param=lvl$l 'NR == FNR {name[FNR] = $1; next} FNR == 2 {for (i = 3; i <= NF; i++) print name[i - 1] "\tcorallel\t" param "\t" $i}' shortnames.txt sim.fa.vec.evol.lvl${l}.phy >> ${SIM_RESULTS}
     done
 
     cd $WORK_DIR
@@ -525,8 +514,7 @@ if [ "$RUN_MASH_SIM" = "true" ]; then
             -p ${SIM_THREADS} \
             sim.mash.k${k}.msh sim.mash.k${k}.msh > sim.mash.k${k}.dist 2>> mash-sim-fa-out.txt
 
-        awk -v param=k$k '$1 == "ref.fa" && $2 != "ref.fa" {sub(/\.fa$/, "", $2); print $2 "\tmash\t" param "\t" $3}' \
-            sim.mash.k${k}.dist >> ${SIM_RESULTS}
+        awk -v param=k$k '$1 == "ref.fa" && $2 != "ref.fa" {sub(/\.fa$/, "", $2); print $2 "\tmash\t" param "\t" $3}' sim.mash.k${k}.dist >> ${SIM_RESULTS}
     done
 
     cd $WORK_DIR
@@ -555,8 +543,7 @@ if [ "$RUN_SOURMASH_SIM" = "true" ]; then
             $(sed "s/\.fa$/.sig/; s/^/sim.sourmash.k${k}./" filenames.txt) >> sourmash-sim-fa-out.txt 2>&1
 
         # sourmash writes CRLF line ends: strip the \r, or it sticks to the last sample name
-        awk -F, -v param=k$k '{sub(/\r$/, "")} NR == 1 {for (i = 1; i <= NF; i++) {name[i] = $i; if ($i == "ref") ref_row = i + 1}} NR == ref_row {for (i = 1; i <= NF; i++) if (name[i] != "ref") print name[i] "\tsourmash\t" param "\t" 1 - $i}' \
-            sim.sourmash.k${k}.csv >> ${SIM_RESULTS}
+        awk -F, -v param=k$k '{sub(/\r$/, "")} NR == 1 {for (i = 1; i <= NF; i++) {name[i] = $i; if ($i == "ref") ref_row = i + 1}} NR == ref_row {for (i = 1; i <= NF; i++) if (name[i] != "ref") print name[i] "\tsourmash\t" param "\t" 1 - $i}' sim.sourmash.k${k}.csv >> ${SIM_RESULTS}
     done
 
     cd $WORK_DIR
@@ -579,8 +566,7 @@ if [ "$RUN_DASHING2_SIM" = "true" ]; then
             --mash-distance \
             --cmpout sim.dashing2.k${k}.dist >> dashing2-sim-fa-out.txt 2>&1
 
-        awk -v param=k$k '/^#Sources/ {for (i = 2; i <= NF; i++) {name[i] = $i; sub(/\.fa$/, "", name[i])}} $1 == "ref.fa" {for (i = 2; i <= NF; i++) if ($i != "-" && name[i] != "ref") print name[i] "\tdashing2\t" param "\t" $i}' \
-            sim.dashing2.k${k}.dist >> ${SIM_RESULTS}
+        awk -v param=k$k '/^#Sources/ {for (i = 2; i <= NF; i++) {name[i] = $i; sub(/\.fa$/, "", name[i])}} $1 == "ref.fa" {for (i = 2; i <= NF; i++) if ($i != "-" && name[i] != "ref") print name[i] "\tdashing2\t" param "\t" $i}' sim.dashing2.k${k}.dist >> ${SIM_RESULTS}
     done
 
     cd $WORK_DIR
@@ -607,8 +593,7 @@ if [ "$RUN_BINDASH_SIM" = "true" ]; then
             --outfname=sim.bindash.k${k}.dist \
             sim.bindash.k${k}.sketch >> bindash-sim-fa-out.txt 2>&1
 
-        awk -v param=k$k '$1 == "ref.fa" || $2 == "ref.fa" {other = ($1 == "ref.fa") ? $2 : $1; if (other != "ref.fa") {sub(/\.fa$/, "", other); print other "\tbindash\t" param "\t" $3}}' \
-            sim.bindash.k${k}.dist >> ${SIM_RESULTS}
+        awk -v param=k$k '$1 == "ref.fa" || $2 == "ref.fa" {other = ($1 == "ref.fa") ? $2 : $1; if (other != "ref.fa") {sub(/\.fa$/, "", other); print other "\tbindash\t" param "\t" $3}}' sim.bindash.k${k}.dist >> ${SIM_RESULTS}
     done
 
     cd $WORK_DIR
@@ -644,8 +629,7 @@ if [ "$RUN_HYPERGEN_SIM" = "true" ]; then
             -t ${SIM_THREADS} \
             -a 0 >> hypergen-sim-fa-out.txt 2>&1
 
-        awk -v param=k$k '{sub(/.*\//, "", $2); sub(/\.fa$/, "", $2)} $2 != "ref" {print $2 "\thypergen\t" param "\t" 1 - $3 / 100}' \
-            sim.hypergen.k${k}.ani >> ${SIM_RESULTS}
+        awk -v param=k$k '{sub(/.*\//, "", $2); sub(/\.fa$/, "", $2)} $2 != "ref" {print $2 "\thypergen\t" param "\t" 1 - $3 / 100}' sim.hypergen.k${k}.ani >> ${SIM_RESULTS}
     done
 
     cd $WORK_DIR
@@ -672,8 +656,7 @@ if [ "$RUN_CORALLEL_SIM_FQ" = "true" ]; then
                 -p sim.${sample} \
                 -v >> corallel-sim-fq-out.txt 2>&1
 
-            awk -v sample=${sample} -v param=lvl$l 'NR == 2 {print sample "\tcorallel\t" param "\t" $3}' \
-                sim.${sample}.set.evol.lvl${l}.phy >> ${SIM_RESULTS}
+            awk -v sample=${sample} -v param=lvl$l 'NR == 2 {print sample "\tcorallel\t" param "\t" $3}' sim.${sample}.set.evol.lvl${l}.phy >> ${SIM_RESULTS}
         done
 
         cd $WORK_DIR
@@ -721,8 +704,7 @@ if [ "$RUN_DASHING2_SIM_FQ" = "true" ]; then
             --cmpout sim.dashing2.dist \
             ref.fq mut.fq > dashing2-sim-fq-out.txt 2>&1
 
-        awk -v sample=${sample} '/^#Sources/ {for (i = 2; i <= NF; i++) if ($i == "mut.fq") mut_col = i} $1 == "ref.fq" {print sample "\tdashing2\tk21\t" $mut_col}' \
-            sim.dashing2.dist >> ${SIM_RESULTS}
+        awk -v sample=${sample} '/^#Sources/ {for (i = 2; i <= NF; i++) if ($i == "mut.fq") mut_col = i} $1 == "ref.fq" {print sample "\tdashing2\tk21\t" $mut_col}' sim.dashing2.dist >> ${SIM_RESULTS}
 
         cd $WORK_DIR
     done
@@ -749,8 +731,7 @@ if [ "$RUN_BINDASH_SIM_FQ" = "true" ]; then
             --outfname=sim.bindash.dist \
             sim.bindash.sketch >> bindash-sim-fq-out.txt 2>&1
 
-        awk -v sample=${sample} '($1 == "ref.fq" && $2 == "mut.fq") || ($1 == "mut.fq" && $2 == "ref.fq") {print sample "\tbindash\tk21\t" $3}' \
-            sim.bindash.dist >> ${SIM_RESULTS}
+        awk -v sample=${sample} '($1 == "ref.fq" && $2 == "mut.fq") || ($1 == "mut.fq" && $2 == "ref.fq") {print sample "\tbindash\tk21\t" $3}' sim.bindash.dist >> ${SIM_RESULTS}
 
         cd $WORK_DIR
     done
@@ -774,8 +755,7 @@ if [ "$RUN_SKMER_SIM_FQ" = "true" ]; then
             -l skmer-lib \
             -o sim.skmer > skmer-sim-fq-out.txt 2>&1
 
-        awk -F'\t' -v sample=${sample} 'NR == 1 {for (i = 1; i <= NF; i++) if ($i == "mut") mut_col = i} $1 == "ref" {print sample "\tskmer\tk31\t" $mut_col}' \
-            sim.skmer.txt >> ${SIM_RESULTS}
+        awk -F'\t' -v sample=${sample} 'NR == 1 {for (i = 1; i <= NF; i++) if ($i == "mut") mut_col = i} $1 == "ref" {print sample "\tskmer\tk31\t" $mut_col}' sim.skmer.txt >> ${SIM_RESULTS}
 
         cd $WORK_DIR
     done

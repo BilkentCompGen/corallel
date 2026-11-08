@@ -5,3 +5,5 @@ corallel
 results*
 
 misc_utils/corallel-config.sh
+third_party/
+genomes/

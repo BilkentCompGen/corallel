@@ -1,6 +1,5 @@
 # Usage: bash corallel-pipeline.sh   (no arguments; runs from any directory)
-#   Settings come from corallel-config.sh next to this script, including WORK_DIR, where inputs are read and
-#   results written (default: <repo>/genomes; set a full path in the config). Tools come from <repo>/third_party.
+#   Settings come from corallel-config.sh next to this script, including WORK_DIR 
 #
 # Required files:
 #   fa-primates
@@ -40,7 +39,8 @@ RUN_SOURMASH_PRIM="true"
 RUN_DASHING2_PRIM="true"
 RUN_CORALLEL_FQ="true"
 RUN_CORALLEL_FQ_CC="true"
-RUN_SIM_DATA="true"
+RUN_SIM_FA_DATA="true"
+RUN_SIM_FQ_DATA="true"
 RUN_CORALLEL_SIM="true"
 RUN_MASH_SIM="true"
 RUN_SOURMASH_SIM="true"
@@ -71,17 +71,15 @@ SKMER="skmer"
 BADREAD="badread"
 SIM_PY="${SCRIPT_DIR}/sim.py"
 
-SIM_REF="chm13v2.0.chr20.fa"
-SIM_ERROR_MODEL="pacbio2021"  # badread error/qscore model: pacbio2021 (HiFi-like) or random (uniform sub/ins/del)
-SIM_IDENTITY_SD=0.05          # spread of per-read identity, in percentage points (0 = every read exactly 1 - error)
-SIM_SEEDS="1 2 3"
-SIM_DIVERGENCES="0.0001 0.0005 0.001 0.005 0.01 0.02"
+SIM_REF_FA="chm13v2.0.fa"
+SIM_REF_FQ="chm13v2.0.chr20.fa"
+SIM_DIVERGENCES="0.000001 0.000005 0.00001 0.00005 0.0001 0.0005 0.001 0.005 0.01 0.05"
 SIM_SV_DIVERGENCE=0.001
 SIM_INDEL_RATE=0.0001
 SIM_SV_COUNTS="0 100 250 500 1000"
 SIM_READ_DIVERGENCE=0.001
 SIM_COVERAGES="5 10 15 20 30"
-SIM_ERROR_RATES="0.001 0.005 0.01 0.02 0.05"
+SIM_ERROR_RATES="0.0001 0.0002 0.0005 0.001 0.002 0.005 0.01 0.02"
 SIM_FIXED_COVERAGE=20
 SIM_FIXED_ERROR=0.001
 SIM_KMERS="21 31"
@@ -90,16 +88,17 @@ SIM_LEVELS_FQ="4 5 6"
 SIM_SKETCH_SIZE=1000000
 SIM_THREADS=${SLURM_CPUS_PER_TASK:-64}
 
-PRIMATES_FQ_DIR=.
+PRIMATES_FQ_DIR="fq-primates"
+PRIMATES_GROUND="primates.ground.newick"
 
-WORK_DIR="${PROJECT_ROOT_DIR}/genomes"
+WORK_DIR="${PROJECT_ROOT_DIR}"
 THIRD_PARTY="${PROJECT_ROOT_DIR}/third_party"
 
 MUTATION_COUNT_PHY="mutation.count.phy"
 
-CONFIG_FILE="$(dirname "${BASH_SOURCE[0]}")/corallel-config.sh"
+CONFIG_FILE="${SCRIPT_DIR}/corallel-config.sh"
 
-# activate the tools before reading the config, so the config can use them (e.g. $(which sourmash))
+# activate the tools before reading the config
 source "${THIRD_PARTY}/activate.sh"
 
 if [[ -n "$CONFIG_FILE" && -f "$CONFIG_FILE" ]]; then
@@ -107,18 +106,40 @@ if [[ -n "$CONFIG_FILE" && -f "$CONFIG_FILE" ]]; then
     source "$CONFIG_FILE"
 fi
 
-mkdir -p "$WORK_DIR" && cd "$WORK_DIR" || exit 1
-WORK_DIR=$PWD
-echo "Working in $WORK_DIR"
+WORK_DIR=$(realpath -m "${WORK_DIR}")
+GENOMES_DIR="${WORK_DIR}/genomes"
+RESULTS_DIR="${WORK_DIR}/results/latest"
+mkdir -p "$GENOMES_DIR" "$RESULTS_DIR" && cd "$GENOMES_DIR" || exit 1
+echo "Inputs in $GENOMES_DIR, results in $RESULTS_DIR"
 
-SIM_RESULTS="$PWD/sim-results.tsv"
+# relative data paths are taken from GENOMES_DIR
+SIM_REF_FA=$(realpath -m "${SIM_REF_FA}")
+SIM_REF_FQ=$(realpath -m "${SIM_REF_FQ}")
+PRIMATES_FQ_DIR=$(realpath -m "${PRIMATES_FQ_DIR}")
+PRIMATES_GROUND=$(realpath -m "${PRIMATES_GROUND}")
+MUTATION_COUNT_PHY=$(realpath -m "${MUTATION_COUNT_PHY}")
+
+SIM_RESULTS="${RESULTS_DIR}/sim-results.tsv"
 [ -f "${SIM_RESULTS}" ] || printf "sample\ttool\tparam\tdistance\n" > ${SIM_RESULTS}
-[ -f "${SIM_REF}" ] && SIM_SCALED=$(( $(grep -v '>' ${SIM_REF} | tr -d '\n' | wc -c) / SIM_SKETCH_SIZE ))
+[ -f "${SIM_REF_FA}" ] && SIM_SCALED=$(( $(grep -v '>' ${SIM_REF_FA} | tr -d '\n' | wc -c) / SIM_SKETCH_SIZE ))
+
+# enter_dir <name> <input dir>: cd into RESULTS_DIR/<name> and link there the inputs listed in <input dir>/filenames.txt
+enter_dir() {
+    mkdir -p "${RESULTS_DIR}/$1" && cd "${RESULTS_DIR}/$1" || exit 1
+    for f in filenames.txt shortnames.txt min_count.txt; do
+        [ -f "$2/$f" ] && ln -sf "$2/$f" .
+    done
+    while read -r f; do
+        [[ -z "$f" || "$f" = /* ]] || ln -sf "$2/$f"* .
+    done < "$2/filenames.txt"
+}
+
+cd $RESULTS_DIR
 
 # Corallel Tumor
 if [ "$RUN_CORALLEL_TUMOR" = "true" ]; then
 
-    cd fa-tumor-human
+    enter_dir fa-tumor-human ${GENOMES_DIR}/fa-tumor-human
 
     rm -f corallel-tumor-fa-out.txt
 
@@ -136,13 +157,13 @@ if [ "$RUN_CORALLEL_TUMOR" = "true" ]; then
 
     done
 
-    cd $WORK_DIR
+    cd $RESULTS_DIR
 fi
 
 # Mash Tumor
 if [ "$RUN_MASH_TUMOR" = "true" ]; then
 
-    cd fa-tumor-human
+    enter_dir fa-tumor-human ${GENOMES_DIR}/fa-tumor-human
 
     rm -f mash-tumor-fa-out.txt
 
@@ -187,26 +208,26 @@ if [ "$RUN_MASH_TUMOR" = "true" ]; then
         fi
     done
 
-    cd $WORK_DIR
+    cd $RESULTS_DIR
 fi
 
 # Sourmash tumor
 if [ "$RUN_SOURMASH_TUMOR" = "true" ]; then
 
-    cd fa-tumor-human
+    enter_dir fa-tumor-human ${GENOMES_DIR}/fa-tumor-human
 
     rm -f sourmash-tumor-fa-out.txt
 
     /bin/time -v ${SOURMASH} compute -k 21 *.fa > sourmash-tumor-fa-out.txt 2>&1
     /bin/time -v ${SOURMASH} compare -p 8 *.sig -o sourmash.tumor >> sourmash-tumor-fa-out.txt 2>&1
 
-    cd $WORK_DIR
+    cd $RESULTS_DIR
 fi
 
 # Dashing2 Tumor
 if [ "$RUN_DASHING2_TUMOR" = "true" ]; then
 
-    cd fa-tumor-human
+    enter_dir fa-tumor-human ${GENOMES_DIR}/fa-tumor-human
 
     rm -f dashing2-tumor-fa-out.txt
 
@@ -228,7 +249,7 @@ if [ "$RUN_DASHING2_TUMOR" = "true" ]; then
 
     done
 
-    cd $WORK_DIR
+    cd $RESULTS_DIR
 fi
 
 # Corallel-ANI tumor
@@ -244,13 +265,13 @@ if [ "$RUN_ANI" = "true" ]; then
         done
     fi
 
-    cd $WORK_DIR
+    cd $RESULTS_DIR
 fi
 
 # Corallel primates
 if [ "$RUN_CORALLEL_PRIM" = "true" ]; then
 
-    cd fa-primates
+    enter_dir fa-primates ${GENOMES_DIR}/fa-primates
 
     rm -f corallel-primates-fa-out.txt
 
@@ -268,13 +289,13 @@ if [ "$RUN_CORALLEL_PRIM" = "true" ]; then
         python3 ${CMP_TREE} ${PRIMATES_GROUND} primates.set.evol.lvl${l}.nj.newick > primates.set.evol.lvl${l}.cmp.txt
     done
 
-    cd $WORK_DIR
+    cd $RESULTS_DIR
 fi
 
 # Mash primates
 if [ "$RUN_MASH_PRIM" = "true" ]; then
 
-    cd fa-primates
+    enter_dir fa-primates ${GENOMES_DIR}/fa-primates
 
     rm -f mash-primates-fa-out.txt
 
@@ -287,26 +308,26 @@ if [ "$RUN_MASH_PRIM" = "true" ]; then
     python3 ${CONVERT} --mash primates.mash.1000.dist primates.mash.1000.phy
     python3 ${PHYLOWIZARD} primates.mash.1000.phy
 
-    cd $WORK_DIR
+    cd $RESULTS_DIR
 fi
 
 # Mash primates
 if [ "$RUN_SOURMASH_PRIM" = "true" ]; then
 
-    cd fa-primates
+    enter_dir fa-primates ${GENOMES_DIR}/fa-primates
 
     rm -f sourmash-primates-fa-out.txt
 
     /bin/time -v ${SOURMASH} compute -k 21 *.fasta > sourmash-primates-fa-out.txt 2>&1
     /bin/time -v ${SOURMASH} compare -p 8 *.sig -o sourmash.primates >> sourmash-primates-fa-out.txt 2>&1
 
-    cd $WORK_DIR
+    cd $RESULTS_DIR
 fi
 
 # Dashing2 primates
 if [ "$RUN_DASHING2_PRIM" = "true" ]; then
 
-    cd fa-primates
+    enter_dir fa-primates ${GENOMES_DIR}/fa-primates
 
     rm -f dashing2-primates-fa-out.txt
 
@@ -318,15 +339,13 @@ if [ "$RUN_DASHING2_PRIM" = "true" ]; then
     python3 ${CONVERT} --dashing2 primates.dashing2.default.phy primates.dashing2.default.norm.phy
     python3 ${PHYLOWIZARD} primates.dashing2.default.norm.phy >> dashing2-primates-fa-out.txt 2>&1
 
-    cd $WORK_DIR
+    cd $RESULTS_DIR
 fi
 
 # Corallel primates fq
 if [ "$RUN_CORALLEL_FQ" = "true" ]; then
 
-    mkdir -p fq-primates
-
-    cd $PRIMATES_FQ_DIR
+    enter_dir fq-primates ${PRIMATES_FQ_DIR}
 
     rm -f corallel-primates-fq-out.txt
 
@@ -345,20 +364,15 @@ if [ "$RUN_CORALLEL_FQ" = "true" ]; then
 
     done
 
-    mv *.phy $WORK_DIR/fq-primates
-    mv *.newick $WORK_DIR/fq-primates
-    mv corallel-primates-fq-out.txt $WORK_DIR/fq-primates
-
-
-    cd $WORK_DIR
+    cd $RESULTS_DIR
 fi
 
 # Corallel primates fq
 if [ "$RUN_CORALLEL_FQ_CC" = "true" ]; then
 
-    mkdir -p fq-primates-cc
+    enter_dir fq-primates-cc ${PRIMATES_FQ_DIR}
 
-    cd $PRIMATES_FQ_DIR
+    rm -f corallel-primates-fq-out.txt
 
     for l in 4 5 6; do
         /bin/time -v ${CORALLEL} fq \
@@ -392,31 +406,27 @@ if [ "$RUN_CORALLEL_FQ_CC" = "true" ]; then
         python3 ${PLOT_DIST} distances.lvl${l}.txt -o tree_disruption.lvl${l}.pdf
     done
 
-    mv *.phy $WORK_DIR/fq-primates-cc
-    mv *.newick $WORK_DIR/fq-primates-cc
-    mv corallel-primates-fq-out.txt $WORK_DIR/fq-primates-cc
-    mv distances.lvl*.txt $WORK_DIR/fq-primates-cc
-    mv tree_disruption.lvl*.pdf $WORK_DIR/fq-primates-cc
-    
-
-    cd $WORK_DIR
+    cd $RESULTS_DIR
 fi
 
-# Simulated assemblies and reads
-if [ "$RUN_SIM_DATA" = "true" ]; then
+# Simulated assemblies
+if [ "$RUN_SIM_FA_DATA" = "true" ]; then
 
-    [ -f "${SIM_REF}" ] || { echo "ERROR: ${SIM_REF} not found in $PWD (set SIM_REF in ${CONFIG_FILE})" >&2; exit 1; }
+    [ -f "${SIM_REF_FA}" ] || { echo "ERROR: ${SIM_REF_FA} not found (set SIM_REF_FA in ${CONFIG_FILE})" >&2; exit 1; }
 
-    mkdir -p fa-sim fq-sim
-    ln -sf "$(realpath ${SIM_REF})" fa-sim/ref.fa
+    cd $GENOMES_DIR
+    mkdir -p fa-sim
+    ln -sf "${SIM_REF_FA}" fa-sim/ref.fa
 
-    for seed in ${SIM_SEEDS}; do
+    for seed in 1 2 3; do
 
         for divergence in ${SIM_DIVERGENCES}; do
+            echo "Simulating with seed ${seed} for divergence ${divergence}"
             python3 ${SIM_PY} fa-sim/ref.fa fa-sim/div_${divergence}_0_${seed}.fa ${divergence} 0 0 ${seed}
         done
 
         for sv_count in ${SIM_SV_COUNTS}; do
+            echo "Simulating with seed ${seed} for sv count ${sv_count}"
             python3 ${SIM_PY} fa-sim/ref.fa fa-sim/sv_${SIM_SV_DIVERGENCE}_${sv_count}_${seed}.fa ${SIM_SV_DIVERGENCE} ${SIM_INDEL_RATE} ${sv_count} ${seed}
         done
     done
@@ -424,10 +434,22 @@ if [ "$RUN_SIM_DATA" = "true" ]; then
     (cd fa-sim && echo ref.fa && ls div_*.fa sv_*.fa | sort -V) > fa-sim/filenames.txt
     sed 's/\.fa$//' fa-sim/filenames.txt > fa-sim/shortnames.txt
 
-    for seed in ${SIM_SEEDS}; do
+    cd $RESULTS_DIR
+fi
+
+# Simulated reads
+if [ "$RUN_SIM_FQ_DATA" = "true" ]; then
+
+    [ -f "${SIM_REF_FQ}" ] || { echo "ERROR: ${SIM_REF_FQ} not found (set SIM_REF_FQ in ${CONFIG_FILE})" >&2; exit 1; }
+
+    cd $GENOMES_DIR
+    mkdir -p fq-sim
+    ln -sf "${SIM_REF_FQ}" fq-sim/ref.fa
+
+    for seed in 1 2 3; do
 
         mutant=$PWD/fq-sim/mut_${SIM_READ_DIVERGENCE}_${seed}.fa
-        python3 ${SIM_PY} fa-sim/ref.fa ${mutant} ${SIM_READ_DIVERGENCE} 0 0 ${seed}
+        python3 ${SIM_PY} fq-sim/ref.fa ${mutant} ${SIM_READ_DIVERGENCE} 0 0 ${seed}
 
         (for coverage in ${SIM_COVERAGES}; do echo "${coverage} ${SIM_FIXED_ERROR}"; done
          for error in ${SIM_ERROR_RATES}; do echo "${SIM_FIXED_COVERAGE} ${error}"; done) | sort -u | while read coverage error; do
@@ -435,7 +457,7 @@ if [ "$RUN_SIM_DATA" = "true" ]; then
             mkdir -p fq-sim/fq_${coverage}_${error}_${seed}
             cd fq-sim/fq_${coverage}_${error}_${seed}
 
-            for genome in ref:$(realpath ../../fa-sim/ref.fa):${seed} mut:${mutant}:$((seed + 100)); do
+            for genome in ref:$(realpath ../ref.fa):${seed} mut:${mutant}:$((seed + 100)); do
                 IFS=: read name fasta read_seed <<< "${genome}"
                 # badread is single-threaded: run SIM_THREADS copies, each making 1/SIM_THREADS of the
                 # coverage with its own seed, then join them (the reads therefore depend on SIM_THREADS).
@@ -446,9 +468,9 @@ if [ "$RUN_SIM_DATA" = "true" ]; then
                         --reference ${fasta} \
                         --quantity $(awk "BEGIN {print ${coverage} / ${SIM_THREADS}}")x \
                         --length 15000,7000 \
-                        --identity $(awk "BEGIN {print 100 * (1 - ${error})}"),100,${SIM_IDENTITY_SD} \
-                        --error_model ${SIM_ERROR_MODEL} \
-                        --qscore_model ${SIM_ERROR_MODEL} \
+                        --identity $(awk "BEGIN {print 100 * (1 - ${error})}"),100,0.05 \
+                        --error_model "pacbio2021" \
+                        --qscore_model "pacbio2021" \
                         --glitches 0,0,0 --junk_reads 0 --random_reads 0 --chimeras 0 \
                         --start_adapter_seq "" --end_adapter_seq "" \
                         --seed $(( read_seed * 1000 + part )) > ${name}.part${part}.fq 2> ${name}.part${part}.log &
@@ -466,15 +488,17 @@ if [ "$RUN_SIM_DATA" = "true" ]; then
             printf "ref\nmut\n" > shortnames.txt
             echo $(( coverage / 2 > 2 ? coverage / 2 : 2 )) > min_count.txt
 
-            cd $WORK_DIR
+            cd $GENOMES_DIR
         done
     done
+
+    cd $RESULTS_DIR
 fi
 
 # Corallel simulated assemblies
 if [ "$RUN_CORALLEL_SIM" = "true" ]; then
 
-    cd fa-sim
+    enter_dir fa-sim ${GENOMES_DIR}/fa-sim
 
     rm -f corallel-sim-fa-out.txt
 
@@ -492,13 +516,13 @@ if [ "$RUN_CORALLEL_SIM" = "true" ]; then
         awk -v param=lvl$l 'NR == FNR {name[FNR] = $1; next} FNR == 2 {for (i = 3; i <= NF; i++) print name[i - 1] "\tcorallel\t" param "\t" $i}' shortnames.txt sim.fa.vec.evol.lvl${l}.phy >> ${SIM_RESULTS}
     done
 
-    cd $WORK_DIR
+    cd $RESULTS_DIR
 fi
 
 # Mash simulated assemblies
 if [ "$RUN_MASH_SIM" = "true" ]; then
 
-    cd fa-sim
+    enter_dir fa-sim ${GENOMES_DIR}/fa-sim
 
     rm -f mash-sim-fa-out.txt
 
@@ -517,13 +541,13 @@ if [ "$RUN_MASH_SIM" = "true" ]; then
         awk -v param=k$k '$1 == "ref.fa" && $2 != "ref.fa" {sub(/\.fa$/, "", $2); print $2 "\tmash\t" param "\t" $3}' sim.mash.k${k}.dist >> ${SIM_RESULTS}
     done
 
-    cd $WORK_DIR
+    cd $RESULTS_DIR
 fi
 
 # Sourmash simulated assemblies
 if [ "$RUN_SOURMASH_SIM" = "true" ]; then
 
-    cd fa-sim
+    enter_dir fa-sim ${GENOMES_DIR}/fa-sim
 
     rm -f sourmash-sim-fa-out.txt
 
@@ -546,13 +570,13 @@ if [ "$RUN_SOURMASH_SIM" = "true" ]; then
         awk -F, -v param=k$k '{sub(/\r$/, "")} NR == 1 {for (i = 1; i <= NF; i++) {name[i] = $i; if ($i == "ref") ref_row = i + 1}} NR == ref_row {for (i = 1; i <= NF; i++) if (name[i] != "ref") print name[i] "\tsourmash\t" param "\t" 1 - $i}' sim.sourmash.k${k}.csv >> ${SIM_RESULTS}
     done
 
-    cd $WORK_DIR
+    cd $RESULTS_DIR
 fi
 
 # Dashing2 simulated assemblies
 if [ "$RUN_DASHING2_SIM" = "true" ]; then
 
-    cd fa-sim
+    enter_dir fa-sim ${GENOMES_DIR}/fa-sim
 
     rm -f dashing2-sim-fa-out.txt
 
@@ -569,13 +593,13 @@ if [ "$RUN_DASHING2_SIM" = "true" ]; then
         awk -v param=k$k '/^#Sources/ {for (i = 2; i <= NF; i++) {name[i] = $i; sub(/\.fa$/, "", name[i])}} $1 == "ref.fa" {for (i = 2; i <= NF; i++) if ($i != "-" && name[i] != "ref") print name[i] "\tdashing2\t" param "\t" $i}' sim.dashing2.k${k}.dist >> ${SIM_RESULTS}
     done
 
-    cd $WORK_DIR
+    cd $RESULTS_DIR
 fi
 
 # BinDash simulated assemblies
 if [ "$RUN_BINDASH_SIM" = "true" ]; then
 
-    cd fa-sim
+    enter_dir fa-sim ${GENOMES_DIR}/fa-sim
 
     rm -f bindash-sim-fa-out.txt
 
@@ -596,13 +620,13 @@ if [ "$RUN_BINDASH_SIM" = "true" ]; then
         awk -v param=k$k '$1 == "ref.fa" || $2 == "ref.fa" {other = ($1 == "ref.fa") ? $2 : $1; if (other != "ref.fa") {sub(/\.fa$/, "", other); print other "\tbindash\t" param "\t" $3}}' sim.bindash.k${k}.dist >> ${SIM_RESULTS}
     done
 
-    cd $WORK_DIR
+    cd $RESULTS_DIR
 fi
 
 # HyperGen simulated assemblies
 if [ "$RUN_HYPERGEN_SIM" = "true" ]; then
 
-    cd fa-sim
+    enter_dir fa-sim ${GENOMES_DIR}/fa-sim
 
     rm -f hypergen-sim-fa-out.txt
     mkdir -p hypergen-ref && ln -sf ../ref.fa hypergen-ref/ref.fa
@@ -632,17 +656,16 @@ if [ "$RUN_HYPERGEN_SIM" = "true" ]; then
         awk -v param=k$k '{sub(/.*\//, "", $2); sub(/\.fa$/, "", $2)} $2 != "ref" {print $2 "\thypergen\t" param "\t" 1 - $3 / 100}' sim.hypergen.k${k}.ani >> ${SIM_RESULTS}
     done
 
-    cd $WORK_DIR
+    cd $RESULTS_DIR
 fi
 
 # Corallel simulated reads
 if [ "$RUN_CORALLEL_SIM_FQ" = "true" ]; then
 
-    for sample_dir in fq-sim/*/; do
-
-        cd ${sample_dir}
+    for sample_dir in ${GENOMES_DIR}/fq-sim/*/; do
 
         sample=$(basename ${sample_dir})
+        enter_dir fq-sim/${sample} ${sample_dir%/}
         rm -f corallel-sim-fq-out.txt
 
         for l in ${SIM_LEVELS_FQ}; do
@@ -659,18 +682,17 @@ if [ "$RUN_CORALLEL_SIM_FQ" = "true" ]; then
             awk -v sample=${sample} -v param=lvl$l 'NR == 2 {print sample "\tcorallel\t" param "\t" $3}' sim.${sample}.set.evol.lvl${l}.phy >> ${SIM_RESULTS}
         done
 
-        cd $WORK_DIR
+        cd $RESULTS_DIR
     done
 fi
 
 # Mash simulated reads
 if [ "$RUN_MASH_SIM_FQ" = "true" ]; then
 
-    for sample_dir in fq-sim/*/; do
-
-        cd ${sample_dir}
+    for sample_dir in ${GENOMES_DIR}/fq-sim/*/; do
 
         sample=$(basename ${sample_dir})
+        enter_dir fq-sim/${sample} ${sample_dir%/}
 
         /bin/time -v ${MASH} dist \
             -p ${SIM_THREADS} \
@@ -682,18 +704,17 @@ if [ "$RUN_MASH_SIM_FQ" = "true" ]; then
 
         awk -v sample=${sample} '{print sample "\tmash\tk21\t" $3}' sim.mash.dist >> ${SIM_RESULTS}
 
-        cd $WORK_DIR
+        cd $RESULTS_DIR
     done
 fi
 
 # Dashing2 simulated reads
 if [ "$RUN_DASHING2_SIM_FQ" = "true" ]; then
 
-    for sample_dir in fq-sim/*/; do
-
-        cd ${sample_dir}
+    for sample_dir in ${GENOMES_DIR}/fq-sim/*/; do
 
         sample=$(basename ${sample_dir})
+        enter_dir fq-sim/${sample} ${sample_dir%/}
 
         /bin/time -v ${DASHING2} sketch \
             -p ${SIM_THREADS} \
@@ -706,18 +727,17 @@ if [ "$RUN_DASHING2_SIM_FQ" = "true" ]; then
 
         awk -v sample=${sample} '/^#Sources/ {for (i = 2; i <= NF; i++) if ($i == "mut.fq") mut_col = i} $1 == "ref.fq" {print sample "\tdashing2\tk21\t" $mut_col}' sim.dashing2.dist >> ${SIM_RESULTS}
 
-        cd $WORK_DIR
+        cd $RESULTS_DIR
     done
 fi
 
 # BinDash simulated reads
 if [ "$RUN_BINDASH_SIM_FQ" = "true" ]; then
 
-    for sample_dir in fq-sim/*/; do
-
-        cd ${sample_dir}
+    for sample_dir in ${GENOMES_DIR}/fq-sim/*/; do
 
         sample=$(basename ${sample_dir})
+        enter_dir fq-sim/${sample} ${sample_dir%/}
 
         /bin/time -v ${BINDASH} sketch \
             --kmerlen=21 \
@@ -733,18 +753,17 @@ if [ "$RUN_BINDASH_SIM_FQ" = "true" ]; then
 
         awk -v sample=${sample} '($1 == "ref.fq" && $2 == "mut.fq") || ($1 == "mut.fq" && $2 == "ref.fq") {print sample "\tbindash\tk21\t" $3}' sim.bindash.dist >> ${SIM_RESULTS}
 
-        cd $WORK_DIR
+        cd $RESULTS_DIR
     done
 fi
 
 # Skmer simulated reads
 if [ "$RUN_SKMER_SIM_FQ" = "true" ]; then
 
-    for sample_dir in fq-sim/*/; do
-
-        cd ${sample_dir}
+    for sample_dir in ${GENOMES_DIR}/fq-sim/*/; do
 
         sample=$(basename ${sample_dir})
+        enter_dir fq-sim/${sample} ${sample_dir%/}
         rm -rf skmer-lib skmer-input
         # .fastq names: skmer 1.x only reads *.fastq
         mkdir -p skmer-input && ln -sf ../ref.fq skmer-input/ref.fastq && ln -sf ../mut.fq skmer-input/mut.fastq
@@ -757,8 +776,8 @@ if [ "$RUN_SKMER_SIM_FQ" = "true" ]; then
 
         awk -F'\t' -v sample=${sample} 'NR == 1 {for (i = 1; i <= NF; i++) if ($i == "mut") mut_col = i} $1 == "ref" {print sample "\tskmer\tk31\t" $mut_col}' sim.skmer.txt >> ${SIM_RESULTS}
 
-        cd $WORK_DIR
+        cd $RESULTS_DIR
     done
 fi
 
-cd $WORK_DIR
+cd $RESULTS_DIR

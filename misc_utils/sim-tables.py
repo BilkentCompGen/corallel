@@ -18,10 +18,10 @@ FA_TOOLS = [('corallel', f'lvl{l}') for l in (4, 5, 6, 7)] + \
            [(t, k) for t in ('mash', 'dashing2', 'bindash', 'sourmash', 'hypergen') for k in ('k21', 'k31')]
 FQ_TOOLS = [('corallel', f'lvl{l}') for l in (4, 5, 6)] + \
            [('mash', 'k21'), ('dashing2', 'k21'), ('bindash', 'k21'), ('skmer', 'k31')]
-DIVERGENCES = ['0.0001', '0.0005', '0.001', '0.005', '0.01', '0.02']
+DIVERGENCES = ['0.000001', '0.000005', '0.00001', '0.00005', '0.0001', '0.0005', '0.001', '0.005', '0.01', '0.05']
 SV_COUNTS = ['100', '250', '500', '1000']   # each relative to 0 SVs
 COVERAGES = ['5', '10', '15', '20', '30']
-ERRORS = ['0.001', '0.005', '0.01', '0.02', '0.05']
+ERRORS = ['0.0001', '0.0002', '0.0005', '0.001', '0.002', '0.005', '0.01', '0.02']
 READ_TRUTH = 0.001
 
 results = {}
